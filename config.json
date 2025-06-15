@@ -1,0 +1,24 @@
+{
+  "name": "grtsinry43's Afilmory",
+  "title": "grtsinry43's Afilmory",
+  "description": "岁月匆匆，朝花夕拾。重温旧照，找寻记忆，满是感动。",
+  "url": "https://gallery.grtsinry43.com/",
+  "accentColor": "#007bff",
+  "author": {
+    "name": "grtsinry43",
+    "url": "https://www.grtsinry43.com/",
+    "avatar": "https://dogeoss.grtsinry43.com/img/author.jpeg"
+  },
+  "social": {
+    "twitter": "@grtsinry43",
+    "github": "grtsinry43"
+  },
+  "feed": {
+    "folo": {
+      "challenge": {
+        "feedId": "",
+        "userId": ""
+      }
+    }
+  }
+}

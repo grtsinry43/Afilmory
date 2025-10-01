@@ -14,12 +14,16 @@ RUN corepack enable
 # -----------------
 FROM base AS builder
 
-RUN apk update && apk add --no-cache git
+RUN apk update && apk add --no-cache git perl
 COPY . .
 RUN sh ./scripts/preinstall.sh
 # Install all dependencies
 RUN pnpm install --frozen-lockfile
 
+ARG S3_ACCESS_KEY_ID
+ARG S3_SECRET_ACCESS_KEY
+ARG GIT_TOKEN
+ARG PG_CONNECTION_STRING
 # Build the app.
 # The build script in the ssr package.json handles building the web app first.
 RUN pnpm --filter=@afilmory/ssr build

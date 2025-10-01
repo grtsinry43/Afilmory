@@ -4,14 +4,14 @@ import type { FC } from 'react'
 import { i18nAtom } from '~/i18n'
 import { jotaiStore } from '~/lib/jotai'
 
-import { EllipsisHorizontalTextWithTooltip } from '../typography'
+import { EllipsisHorizontalTextWithTooltip } from '../typography/EllipsisWithTooltip'
 
 // Helper function to clean up EXIF values by removing unnecessary characters
 const cleanExifValue = (value: string | null | undefined): string | null => {
   if (!value) return null
 
   // Remove parenthetical descriptions like "(medium soft)" from "-1 (medium soft)"
-  const cleaned = value.replace(/\s*\([^)]*\)$/, '')
+  const cleaned = value.toString().replace(/\s*\([^)]*\)$/, '')
 
   return cleaned.trim() || null
 }
@@ -215,7 +215,11 @@ export const formatExifData = (exif: PickedExif | null) => {
 
   // 快门速度
   const exposureTime = exif.ExposureTime
-  const shutterSpeed = `${exposureTime}s`
+  const shutterSpeed = exposureTime
+    ? `${exposureTime}s`
+    : exif.ShutterSpeedValue
+      ? `${exif.ShutterSpeedValue}s`
+      : null
 
   // 光圈
   const aperture = exif.FNumber ? `f/${exif.FNumber}` : null
@@ -325,21 +329,14 @@ export const formatExifData = (exif: PickedExif | null) => {
     ? Math.round(exif.FocalPlaneYResolution)
     : null
 
-  // 像素信息
-  const pixelXDimension = exif.ImageWidth || null
-  const pixelYDimension = exif.ImageHeight || null
-  const totalPixels =
-    pixelXDimension && pixelYDimension
-      ? pixelXDimension * pixelYDimension
-      : null
-  const megaPixels = totalPixels
-    ? `${(totalPixels / 1000000).toFixed(1)}MP`
-    : null
-
   // 色彩空间 - with translation
   const colorSpace = translateColorSpace(exif.ColorSpace || null)
 
+  // 评分
+  const rating = exif.Rating
+
   const GPSAltitudeIsAboveSeaLevel = exif.GPSAltitudeRef === 'Above Sea Level'
+
   // GPS 信息
   const gpsInfo = {
     altitude: exif.GPSAltitude
@@ -403,19 +400,17 @@ export const formatExifData = (exif: PickedExif | null) => {
     focalPlaneXResolution,
     focalPlaneYResolution,
 
-    megaPixels,
-    pixelXDimension,
-    pixelYDimension,
     whiteBalanceBias,
     wbShiftAB,
     wbShiftGM,
     whiteBalanceFineTune,
 
-    // GPS信息
-    gps: gpsInfo,
+    // GPS 信息
+    gps: gpsInfo.latitude && gpsInfo.longitude ? gpsInfo : null,
 
     fujiRecipe: exif.FujiRecipe ? processFujiRecipe(exif.FujiRecipe) : null,
     exposureProgram,
+    rating,
   }
 }
 
@@ -423,11 +418,10 @@ export const Row: FC<{
   label: string
   value: string | number | null | undefined | number[]
   ellipsis?: boolean
-}> = ({ label, value, ellipsis }) => {
+}> = ({ label, value, ellipsis = false }) => {
   return (
-    <div className="flex justify-between gap-4">
+    <div className="flex justify-between gap-4 text-sm">
       <span className="text-text-secondary shrink-0">{label}</span>
-
       {ellipsis ? (
         <span className="relative min-w-0 flex-1 shrink">
           <span className="absolute inset-0">
@@ -446,12 +440,12 @@ export const Row: FC<{
 }
 
 const formatDateTime = (date: Date | null | undefined) => {
+  if (!date || Number.isNaN(date.getTime())) return ''
   const i18n = jotaiStore.get(i18nAtom)
   const datetimeFormatter = new Intl.DateTimeFormat(i18n.language, {
     dateStyle: 'short',
     timeStyle: 'medium',
   })
-  if (!date) return ''
 
   return datetimeFormatter.format(date)
 }

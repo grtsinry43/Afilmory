@@ -15,6 +15,10 @@ interface LoadingState {
   isWebGLLoading?: boolean // WebGL 纹理是否正在加载
   webglMessage?: string // WebGL 加载消息
   webglQuality?: 'high' | 'medium' | 'low' | 'unknown' // WebGL 纹理质量
+
+  // 错误状态
+  isError?: boolean // 是否出现错误
+  errorMessage?: string // 错误消息
 }
 
 interface LoadingIndicatorRef {
@@ -30,15 +34,17 @@ const initialLoadingState: LoadingState = {
   loadedBytes: 0,
   totalBytes: 0,
   conversionMessage: undefined,
-  codecInfo: undefined,
+
   isWebGLLoading: false,
   webglMessage: undefined,
   webglQuality: 'unknown',
+
+  isError: false,
+  errorMessage: undefined,
 }
 
 export const LoadingIndicator = ({
   ref,
-  ..._
 }: {
   ref?: React.Ref<LoadingIndicatorRef | null>
 }) => {
@@ -71,23 +77,30 @@ export const LoadingIndicator = ({
   }
 
   return (
-    <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-xl border border-white/10 bg-black/80 px-3 py-2 backdrop-blur-sm">
+    <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-xl border border-white/10 bg-black/80 px-3 py-2 backdrop-blur">
       <div className="flex items-center gap-3 text-white">
         <div className="relative">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          {loadingState.isError ? (
+            <div className="i-mingcute-warning-line text-lg text-red-400" />
+          ) : (
+            <div className="i-mingcute-loading-3-line animate-spin text-lg" />
+          )}
         </div>
         <div className="flex min-w-0 flex-col gap-0.5">
-          {loadingState.isConverting ? (
+          {loadingState.isError ? (
+            // 错误状态
+            <>
+              <p className="text-xs font-medium text-red-400">
+                {loadingState.errorMessage || t('photo.error.loading')}
+              </p>
+              <p className="text-xs text-white/70">{t('loading.default')}</p>
+            </>
+          ) : loadingState.isConverting ? (
             // 视频转换状态
             <>
               <p className="text-xs font-medium text-white tabular-nums">
                 {loadingState.conversionMessage || t('loading.converting')}
               </p>
-              {loadingState.codecInfo && (
-                <p className="text-xs text-white/70 tabular-nums">
-                  {loadingState.codecInfo}
-                </p>
-              )}
             </>
           ) : loadingState.isWebGLLoading ? (
             // WebGL 加载状态
@@ -144,7 +157,5 @@ export const LoadingIndicator = ({
     </div>
   )
 }
-
-LoadingIndicator.displayName = 'LoadingIndicator'
 
 export type { LoadingIndicatorRef, LoadingState }

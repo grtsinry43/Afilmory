@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/Afilmory/assets/blob/main/512-mac.png?raw=true" alt="Afilmory" width="256px" />
+  <img src="https://github.com/Afilmory/assets/blob/main/afilmory-readme.webp?raw=true" alt="Afilmory" width="100%" />
 </p>
 
 # <p align="center">Afilmory</p>
@@ -10,9 +10,10 @@ A modern photo gallery website built with React + TypeScript, supporting automat
 
 Live Photo Galleries:
 
-- https://gallery.innei.in
+- https://afilmory.innei.in
 - https://gallery.mxte.cc
 - https://photography.pseudoyu.com
+- https://afilmory.magren.cc
 
 ## 🌟 Features
 
@@ -23,23 +24,27 @@ Live Photo Galleries:
 - 🎨 **Modern UI Design** - Built with Tailwind CSS and Radix UI component library
 - ⚡ **Incremental Sync** - Smart change detection, processes only new or modified photos
 - 🌐 **i18n** - Multi-language support
-- 🌐 **OpenGraph** - OpenGraph metadata for social media sharing
+- 🔗 **OpenGraph** - OpenGraph metadata for social media sharing
 
 ### Image Processing
 
 - 🔄 **HEIC/HEIF Format Support** - Automatic conversion of Apple device HEIC format
+- 📷 **TIFF Format Support** - Automatic conversion of TIFF format
 - 🖼️ **Smart Thumbnail Generation** - Multi-size thumbnails for optimized loading performance
 - 📊 **EXIF Information Display** - Complete shooting parameters including camera model, focal length, aperture, etc.
 - 🌈 **Blurhash Placeholders** - Elegant image loading experience
 - 📱 **Live Photo Support** - Detection and display of iPhone Live Photos
+- ☀️ **HDR Image Support** - Display HDR images
 
 ### Advanced Features
 
-- 🎛️ **Fujifilm Simulation** - Read and display Fujifilm camera film simulation settings
+- 🎛️ **Fujifilm Recipe** - Read and display Fujifilm camera film simulation settings
 - 🔍 **Fullscreen Viewer** - Image viewer with gesture support
-- 🏷️ **Smart Tags** - Auto-generated tags based on EXIF data
+- 🏷️ **File System Tags** - Auto-generated tags based on file system
 - ⚡ **Concurrent Processing** - Multi-process/multi-thread concurrent processing support
 - 🗂️ **Multi-Storage Support** - S3, GitHub, and other storage backends
+- 📷 **Share Image** - Share image to social media or embed iframe to your website
+- 🗺️ **Interactive Map Explorer** - Geographic visualization of photos with GPS coordinates from EXIF data using MapLibre
 
 ## 🏗️ Technical Architecture
 
@@ -76,128 +81,24 @@ Designed with adapter pattern, supporting multiple storage backends:
 
 [Docker Deployment](https://github.com/Afilmory/docker)
 
-### Requirements
-
-- Node.js 18+
-- At least 4GB RAM (for image processing)
-
-### 1. Clone the Project
-
-```bash
-git clone https://github.com/Afilmory/Afilmory.git
-cd photo-gallery-site
-```
-
-### 2. Install Dependencies
-
-```bash
-pnpm install
-```
-
-### 3. Environment Configuration
-
-Create `.env` file:
-
-```env
-# S3 Storage Configuration
-S3_REGION=us-east-1
-S3_ACCESS_KEY_ID=your_access_key_id
-S3_SECRET_ACCESS_KEY=your_secret_access_key
-S3_ENDPOINT=https://s3.amazonaws.com
-S3_BUCKET_NAME=your_bucket_name
-S3_PREFIX=photos/
-S3_CUSTOM_DOMAIN=your_custom_domain.com
-```
-
-### 4. Site Configuration
-
-Copy and edit the configuration file:
-
-```bash
-cp config.example.json config.json
-```
-
-Edit `config.json`:
-
-```json
-{
-  "name": "My Afilmory",
-  "title": "My Afilmory",
-  "description": "Capturing beautiful moments in life",
-  "url": "https://afilmory.example.com",
-  "accentColor": "#007bff", // Optional, set theme color
-  "author": {
-    "name": "Your Name", // Required, set author name
-    "url": "https://example.com", // Optional, set author homepage
-    "avatar": "https://example.com/avatar.png" // Optional, set author avatar
-  },
-  "social": {
-    "twitter": "@yourusername" // Optional, set social accounts
-  }
-}
-```
-
-### 5. Build Photo Manifest
-
-```bash
-# Initial build
-pnpm run build:manifest
-
-# Incremental update
-pnpm run build:manifest
-
-# Force full update
-pnpm run build:manifest -- --force
-```
-
-### 6. Start Development Server
-
-```bash
-pnpm dev
-```
-
 ## ⚙️ Configuration Options
 
-### Builder Configuration
+#### Remote Repository Configuration (`repo`)
 
-Create `builder.config.json` file for advanced configuration:
+To achieve incremental builds in CI, it is necessary to configure a cache repository, which will pull the cache before each build and upload the build results after the build.
 
 ```json
 {
   "repo": {
-    "enable": false,
+    "enable": true,
     "url": "https://github.com/username/gallery-assets"
-  },
-  "storage": {
-    "provider": "s3",
-    "bucket": "my-photos",
-    "region": "us-east-1",
-    "prefix": "photos/",
-    "customDomain": "cdn.example.com"
-  },
-  "options": {
-    "defaultConcurrency": 8,
-    "enableLivePhotoDetection": true,
-    "showProgress": true,
-    "showDetailedStats": true
-  },
-  "logging": {
-    "verbose": true,
-    "level": "info",
-    "outputToFile": false
-  },
-  "performance": {
-    "worker": {
-      "workerCount": 8,
-      "timeout": 30000,
-      "useClusterMode": true,
-      "workerConcurrency": 2
-    }
   }
 }
 ```
 
-### Configuration Options Description
+This will automatically pull resources from the remote repository, avoiding rebuilds each time.
+
+**In order to achieve uploading to the git repository, you need to provide a `GIT_TOKEN` and write it in the `.env` file.**
 
 #### Storage Configuration (`storage`)
 
@@ -207,10 +108,12 @@ Create `builder.config.json` file for advanced configuration:
 - `endpoint`: S3 endpoint (optional)
 - `prefix`: File prefix
 - `customDomain`: Custom domain
+- `excludeRegex`: Regular expression to exclude files (optional)
 
 #### Build Options (`options`)
 
 - `defaultConcurrency`: Default concurrency
+- `digestSuffixLength`: The length of the SHA-256 digest appended to the photo ID.
 - `enableLivePhotoDetection`: Enable Live Photo detection
 - `showProgress`: Show build progress
 - `showDetailedStats`: Show detailed statistics
@@ -226,21 +129,6 @@ Create `builder.config.json` file for advanced configuration:
 - `verbose`: Verbose logging
 - `level`: Log level (`info` | `warn` | `error` | `debug`)
 - `outputToFile`: Output to file
-
-### Remote Repository Configuration
-
-If you have a separate asset repository for storing thumbnails and manifests:
-
-```json
-{
-  "repo": {
-    "enable": true,
-    "url": "https://github.com/username/gallery-assets"
-  }
-}
-```
-
-This will automatically pull resources from the remote repository, avoiding rebuilds each time.
 
 ## 📋 CLI Commands
 
@@ -313,7 +201,7 @@ export async function customImageProcessor(buffer: Buffer) {
 
 ## 📄 License
 
-MIT License © 2025 Innei
+MIT License © 2025 Afilmory Team
 
 ## 🔗 Related Links
 

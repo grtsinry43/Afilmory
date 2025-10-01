@@ -119,7 +119,7 @@ export const Slider = ({
           {/* 激活区域 */}
           <div
             className={clsxm(
-              'absolute top-0 h-full rounded-full transition-all duration-150',
+              'absolute top-0 h-full rounded-full transition-all duration-150 max-w-full',
               value === 'auto' ? 'bg-green-500' : 'bg-accent',
             )}
             style={{
@@ -174,7 +174,9 @@ export const Slider = ({
 
       {/* 当前值显示 */}
       <div className="mt-8 text-center text-sm font-medium text-gray-700 dark:text-gray-300">
-        {value === 'auto' ? finalAutoLabel : `${value} 列`}
+        {value === 'auto'
+          ? finalAutoLabel
+          : t('slider.columns', { count: value } as any)}
       </div>
     </div>
   )

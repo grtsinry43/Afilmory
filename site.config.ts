@@ -11,7 +11,16 @@ export interface SiteConfig {
   author: Author
   social?: Social
   feed?: Feed
+  map?: MapConfig
+  mapStyle?: string
 }
+
+/**
+ * Map configuration - can be either:
+ * - A string for a single provider: 'maplibre'
+ * - An array for multiple providers in priority order: ['maplibre']
+ */
+type MapConfig = 'maplibre'[]
 
 interface Feed {
   folo?: {
@@ -27,8 +36,9 @@ interface Author {
   avatar?: string
 }
 interface Social {
-  twitter: string
-  github: string
+  twitter?: string
+  github?: string
+  rss?: boolean
 }
 
 const defaultConfig: SiteConfig = {
@@ -42,10 +52,6 @@ const defaultConfig: SiteConfig = {
     name: 'Innei',
     url: 'https://innei.in/',
     avatar: 'https://cdn.jsdelivr.net/gh/Innei/static@master/avatar.png',
-  },
-  social: {
-    twitter: '@__oQuery',
-    github: 'Innei',
   },
 }
 export const siteConfig: SiteConfig = merge(defaultConfig, userConfig) as any

@@ -1,21 +1,52 @@
 import fs from 'node:fs/promises'
-import path from 'node:path'
+import path, { basename } from 'node:path'
 
 import { workdir } from '@afilmory/builder/path.js'
 import type { _Object } from '@aws-sdk/client-s3'
 
-import type { Logger } from '../logger/index.js'
+import { logger } from '../logger/index.js'
+import type {
+  AfilmoryManifest,
+  CameraInfo,
+  LensInfo,
+} from '../types/manifest.js'
 import type { PhotoManifestItem } from '../types/photo.js'
+import { migrateManifestFileIfNeeded } from './migrate.js'
+import { CURRENT_MANIFEST_VERSION } from './version.js'
 
 const manifestPath = path.join(workdir, 'src/data/photos-manifest.json')
 
-export async function loadExistingManifest(): Promise<PhotoManifestItem[]> {
+export async function loadExistingManifest(): Promise<AfilmoryManifest> {
+  let manifest: AfilmoryManifest
   try {
     const manifestContent = await fs.readFile(manifestPath, 'utf-8')
-    return JSON.parse(manifestContent) as PhotoManifestItem[]
+    manifest = JSON.parse(manifestContent) as AfilmoryManifest
   } catch {
-    return []
+    logger.fs.error(
+      '🔍 未找到 manifest 文件/解析失败，创建新的 manifest 文件...',
+    )
+    return {
+      version: CURRENT_MANIFEST_VERSION,
+      data: [],
+      cameras: [],
+      lenses: [],
+    }
   }
+
+  if (manifest.version !== CURRENT_MANIFEST_VERSION) {
+    const migrated = await migrateManifestFileIfNeeded(manifest)
+    if (migrated) return migrated
+  }
+
+  // 向后兼容：如果现有 manifest 没有 cameras 和 lenses 字段，则添加空数组
+  if (!manifest.cameras) {
+    manifest.cameras = []
+  }
+  if (!manifest.lenses) {
+    manifest.lenses = []
+  }
+
+  return manifest
 }
 
 // 检查照片是否需要更新（基于最后修改时间）
@@ -34,53 +65,58 @@ export function needsUpdate(
 
 // 保存 manifest
 export async function saveManifest(
-  manifest: PhotoManifestItem[],
-  fsLogger?: Logger['fs'],
+  items: PhotoManifestItem[],
+  cameras: CameraInfo[] = [],
+  lenses: LensInfo[] = [],
 ): Promise<void> {
   // 按日期排序（最新的在前）
-  const sortedManifest = [...manifest].sort(
+  const sortedManifest = [...items].sort(
     (a, b) => new Date(b.dateTaken).getTime() - new Date(a.dateTaken).getTime(),
   )
 
   await fs.mkdir(path.dirname(manifestPath), { recursive: true })
-  await fs.writeFile(manifestPath, JSON.stringify(sortedManifest, null, 2))
+  await fs.writeFile(
+    manifestPath,
+    JSON.stringify(
+      {
+        version: CURRENT_MANIFEST_VERSION,
+        data: sortedManifest,
+        cameras,
+        lenses,
+      } as AfilmoryManifest,
+      null,
+      2,
+    ),
+  )
 
-  fsLogger?.info(`📁 Manifest 保存至：${manifestPath}`)
+  logger.fs.info(`📁 Manifest 保存至： ${manifestPath}`)
+  logger.fs.info(`📷 包含 ${cameras.length} 个相机，🔍 ${lenses.length} 个镜头`)
 }
 
 // 检测并处理已删除的图片
 export async function handleDeletedPhotos(
-  existingManifest: PhotoManifestItem[],
-  s3ImageKeys: Set<string>,
-  mainLogger?: Logger['main'],
-  fsLogger?: Logger['fs'],
+  items: PhotoManifestItem[],
 ): Promise<number> {
-  if (existingManifest.length === 0) {
+  logger.main.info('🔍 检查已删除的图片...')
+  if (items.length === 0) {
+    // Clear all thumbnails
+    await fs.rm(path.join(workdir, 'public/thumbnails'), { recursive: true })
+    logger.main.info('🔍 没有图片，清空缩略图...')
     return 0
   }
 
-  mainLogger?.info('🔍 检查已删除的图片...')
   let deletedCount = 0
+  const allThumbnails = await fs.readdir(
+    path.join(workdir, 'public/thumbnails'),
+  )
 
-  for (const existingItem of existingManifest) {
-    // 如果现有 manifest 中的图片在 S3 中不存在了
-    if (!s3ImageKeys.has(existingItem.s3Key)) {
-      mainLogger?.info(`🗑️ 检测到已删除的图片：${existingItem.s3Key}`)
+  // If thumbnails not in manifest, delete it
+  const manifestKeySet = new Set(items.map((item) => item.id))
+
+  for (const thumbnail of allThumbnails) {
+    if (!manifestKeySet.has(basename(thumbnail, '.jpg'))) {
+      await fs.unlink(path.join(workdir, 'public/thumbnails', thumbnail))
       deletedCount++
-
-      // 删除对应的缩略图文件
-      try {
-        const thumbnailPath = path.join(
-          workdir,
-          'public/thumbnails',
-          `${existingItem.id}.webp`,
-        )
-        await fs.unlink(thumbnailPath)
-        fsLogger?.info(`🗑️ 已删除缩略图：${existingItem.id}.webp`)
-      } catch (error) {
-        // 缩略图可能已经不存在，忽略错误
-        fsLogger?.warn(`删除缩略图失败：${existingItem.id}.webp`, error)
-      }
     }
   }
 

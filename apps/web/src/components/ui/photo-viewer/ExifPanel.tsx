@@ -1,12 +1,14 @@
 import './PhotoViewer.css'
 
-import type { PickedExif } from '@afilmory/data'
+import type { PhotoManifestItem, PickedExif } from '@afilmory/builder'
 import { isNil } from 'es-toolkit/compat'
+import { useAtomValue } from 'jotai'
 import { m } from 'motion/react'
 import type { FC } from 'react'
-import { Fragment } from 'react'
+import { Fragment, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { isExiftoolLoadedAtom } from '~/atoms/app'
 import { ScrollArea } from '~/components/ui/scroll-areas/ScrollArea'
 import { useMobile } from '~/hooks/useMobile'
 import {
@@ -17,52 +19,71 @@ import {
   TablerAperture,
 } from '~/icons'
 import { getImageFormat } from '~/lib/image-utils'
+import { convertExifGPSToDecimal } from '~/lib/map-utils'
 import { Spring } from '~/lib/spring'
-import type { PhotoManifest } from '~/types/photo'
 
 import { MotionButtonBase } from '../button'
 import { formatExifData, Row } from './formatExifData'
+import { HistogramChart } from './HistogramChart'
+import { MiniMap } from './MiniMap'
+import { RawExifViewer } from './RawExifViewer'
 
 export const ExifPanel: FC<{
-  currentPhoto: PhotoManifest
+  currentPhoto: PhotoManifestItem
   exifData: PickedExif | null
 
   onClose?: () => void
-}> = ({ currentPhoto, exifData, onClose }) => {
+  visible?: boolean
+}> = ({ currentPhoto, exifData, onClose, visible = true }) => {
   const { t } = useTranslation()
   const isMobile = useMobile()
   const formattedExifData = formatExifData(exifData)
+  const isExiftoolLoaded = useAtomValue(isExiftoolLoadedAtom)
+
+  // Compute decimal GPS coordinates from raw EXIF data
+  const gpsData = useMemo(() => convertExifGPSToDecimal(exifData), [exifData])
+
+  const decimalLatitude = gpsData?.latitude || null
+  const decimalLongitude = gpsData?.longitude || null
 
   // 使用通用的图片格式提取函数
   const imageFormat = getImageFormat(
     currentPhoto.originalUrl || currentPhoto.s3Key || '',
   )
+  const megaPixels = (
+    ((currentPhoto.height * currentPhoto.width) / 1000000) |
+    0
+  ).toString()
 
   return (
     <m.div
       className={`${
         isMobile
-          ? 'exif-panel-mobile fixed right-0 bottom-0 left-0 max-h-[60vh] w-full rounded-t-2xl backdrop-blur-[70px]'
-          : 'w-80 shrink-0'
-      } bg-material-medium z-10 flex flex-col text-white`}
+          ? 'exif-panel-mobile fixed right-0 bottom-0 left-0 z-10 max-h-[60vh] w-full rounded-t-2xl backdrop-blur-[70px]'
+          : 'relative w-80 shrink-0'
+      } bg-material-medium flex flex-col text-white`}
       initial={{
         opacity: 0,
         ...(isMobile ? { y: 100 } : { x: 100 }),
       }}
       animate={{
-        opacity: 1,
-        ...(isMobile ? { y: 0 } : { x: 0 }),
+        opacity: visible ? 1 : 0,
+        ...(isMobile ? { y: visible ? 0 : 100 } : { x: visible ? 0 : 100 }),
       }}
       exit={{
         opacity: 0,
         ...(isMobile ? { y: 100 } : { x: 100 }),
       }}
       transition={Spring.presets.smooth}
+      style={{ pointerEvents: visible ? 'auto' : 'none' }}
     >
       <div className="mb-4 flex shrink-0 items-center justify-between p-4 pb-0">
         <h3 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold`}>
           {t('exif.header.title')}
         </h3>
+        {!isMobile && isExiftoolLoaded && (
+          <RawExifViewer currentPhoto={currentPhoto} />
+        )}
         {isMobile && onClose && (
           <button
             type="button"
@@ -76,7 +97,7 @@ export const ExifPanel: FC<{
 
       <ScrollArea
         rootClassName="flex-1 min-h-0 overflow-auto lg:overflow-hidden"
-        viewportClassName="px-4 pb-4"
+        viewportClassName="px-4 pb-4 [&_*]:select-text"
       >
         <div className={`space-y-${isMobile ? '3' : '4'}`}>
           {/* 基本信息和标签 - 合并到一个 section */}
@@ -88,7 +109,7 @@ export const ExifPanel: FC<{
               <Row
                 label={t('exif.filename')}
                 value={currentPhoto.title}
-                ellipsis
+                ellipsis={true}
               />
               <Row label={t('exif.format')} value={imageFormat} />
               <Row
@@ -99,13 +120,8 @@ export const ExifPanel: FC<{
                 label={t('exif.file.size')}
                 value={`${(currentPhoto.size / 1024 / 1024).toFixed(1)}MB`}
               />
-              {formattedExifData?.megaPixels && (
-                <Row
-                  label={t('exif.pixels')}
-                  value={`${Math.floor(
-                    Number.parseFloat(formattedExifData.megaPixels),
-                  )} MP`}
-                />
+              {megaPixels && (
+                <Row label={t('exif.pixels')} value={`${megaPixels} MP`} />
               )}
               {formattedExifData?.colorSpace && (
                 <Row
@@ -113,6 +129,12 @@ export const ExifPanel: FC<{
                   value={formattedExifData.colorSpace}
                 />
               )}
+              {formattedExifData?.rating && formattedExifData.rating > 0 ? (
+                <Row
+                  label={t('exif.rating')}
+                  value={'★'.repeat(formattedExifData.rating)}
+                />
+              ) : null}
 
               {formattedExifData?.dateTime && (
                 <Row
@@ -131,14 +153,12 @@ export const ExifPanel: FC<{
                 <Row
                   label={t('exif.artist')}
                   value={formattedExifData.artist}
-                  ellipsis
                 />
               )}
               {formattedExifData?.copyright && (
                 <Row
                   label={t('exif.copyright')}
                   value={formattedExifData.copyright}
-                  ellipsis
                 />
               )}
 
@@ -150,63 +170,68 @@ export const ExifPanel: FC<{
               )}
             </div>
 
-            {formattedExifData && (
-              <div>
-                <h4 className="my-2 text-sm font-medium text-white/80">
-                  {t('exif.capture.parameters')}
-                </h4>
-                <div className={`grid grid-cols-2 gap-2`}>
-                  {formattedExifData.focalLength35mm && (
-                    <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
-                      <StreamlineImageAccessoriesLensesPhotosCameraShutterPicturePhotographyPicturesPhotoLens className="text-sm text-white/70" />
-                      <span className="text-xs">
-                        {formattedExifData.focalLength35mm}mm
-                      </span>
-                    </div>
-                  )}
+            {formattedExifData &&
+              (formattedExifData.shutterSpeed ||
+                formattedExifData.iso ||
+                formattedExifData.aperture ||
+                formattedExifData.exposureBias ||
+                formattedExifData.focalLength35mm) && (
+                <div>
+                  <h4 className="my-2 text-sm font-medium text-white/80">
+                    {t('exif.capture.parameters')}
+                  </h4>
+                  <div className={`grid grid-cols-2 gap-2`}>
+                    {formattedExifData.focalLength35mm && (
+                      <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
+                        <StreamlineImageAccessoriesLensesPhotosCameraShutterPicturePhotographyPicturesPhotoLens className="text-sm text-white/70" />
+                        <span className="text-xs">
+                          {formattedExifData.focalLength35mm}mm
+                        </span>
+                      </div>
+                    )}
 
-                  {formattedExifData.aperture && (
-                    <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
-                      <TablerAperture className="text-sm text-white/70" />
-                      <span className="text-xs">
-                        {formattedExifData.aperture}
-                      </span>
-                    </div>
-                  )}
+                    {formattedExifData.aperture && (
+                      <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
+                        <TablerAperture className="text-sm text-white/70" />
+                        <span className="text-xs">
+                          {formattedExifData.aperture}
+                        </span>
+                      </div>
+                    )}
 
-                  {formattedExifData.shutterSpeed && (
-                    <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
-                      <MaterialSymbolsShutterSpeed className="text-sm text-white/70" />
-                      <span className="text-xs">
-                        {formattedExifData.shutterSpeed}
-                      </span>
-                    </div>
-                  )}
+                    {formattedExifData.shutterSpeed && (
+                      <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
+                        <MaterialSymbolsShutterSpeed className="text-sm text-white/70" />
+                        <span className="text-xs">
+                          {formattedExifData.shutterSpeed}
+                        </span>
+                      </div>
+                    )}
 
-                  {formattedExifData.iso && (
-                    <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
-                      <CarbonIsoOutline className="text-sm text-white/70" />
-                      <span className="text-xs">
-                        ISO {formattedExifData.iso}
-                      </span>
-                    </div>
-                  )}
+                    {formattedExifData.iso && (
+                      <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
+                        <CarbonIsoOutline className="text-sm text-white/70" />
+                        <span className="text-xs">
+                          ISO {formattedExifData.iso}
+                        </span>
+                      </div>
+                    )}
 
-                  {formattedExifData.exposureBias && (
-                    <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
-                      <MaterialSymbolsExposure className="text-sm text-white/70" />
-                      <span className="text-xs">
-                        {formattedExifData.exposureBias}
-                      </span>
-                    </div>
-                  )}
+                    {formattedExifData.exposureBias && (
+                      <div className="flex h-6 items-center gap-2 rounded-md bg-white/10 px-2">
+                        <MaterialSymbolsExposure className="text-sm text-white/70" />
+                        <span className="text-xs">
+                          {formattedExifData.exposureBias}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {/* 标签信息 - 移到基本信息 section 内 */}
             {currentPhoto.tags && currentPhoto.tags.length > 0 && (
-              <div className="mt-3">
+              <div className="mt-3 mb-3">
                 <h4 className="mb-2 text-sm font-medium text-white/80">
                   {t('exif.tags')}
                 </h4>
@@ -231,6 +256,59 @@ export const ExifPanel: FC<{
               </div>
             )}
           </div>
+
+          {/* 影调分析和直方图 */}
+          {currentPhoto.toneAnalysis && (
+            <div>
+              <h4 className="mb-2 text-sm font-medium text-white/80">
+                {t('exif.tone.analysis.title')}
+              </h4>
+              <div>
+                {/* 影调信息 */}
+                <Row
+                  label={t('exif.tone.type')}
+                  value={(() => {
+                    const toneTypeMap = {
+                      'low-key': t('exif.tone.low-key'),
+                      'high-key': t('exif.tone.high-key'),
+                      normal: t('exif.tone.normal'),
+                      'high-contrast': t('exif.tone.high-contrast'),
+                    }
+                    return (
+                      toneTypeMap[currentPhoto.toneAnalysis!.toneType] ||
+                      currentPhoto.toneAnalysis!.toneType
+                    )
+                  })()}
+                />
+                <div className="mt-1 mb-3 grid grid-cols-2 gap-x-2 gap-y-1 text-sm">
+                  <Row
+                    label={t('exif.brightness.title')}
+                    value={`${currentPhoto.toneAnalysis.brightness}%`}
+                  />
+                  <Row
+                    label={t('exif.contrast.title')}
+                    value={`${currentPhoto.toneAnalysis.contrast}%`}
+                  />
+                  <Row
+                    label={t('exif.shadow.ratio')}
+                    value={`${Math.round(currentPhoto.toneAnalysis.shadowRatio * 100)}%`}
+                  />
+                  <Row
+                    label={t('exif.highlight.ratio')}
+                    value={`${Math.round(currentPhoto.toneAnalysis.highlightRatio * 100)}%`}
+                  />
+                </div>
+
+                {/* 直方图 */}
+                <div className="mb-3">
+                  <div className="mb-2 text-xs font-medium text-white/70">
+                    {t('exif.histogram')}
+                  </div>
+                  <HistogramChart thumbnailUrl={currentPhoto.thumbnailUrl} />
+                </div>
+              </div>
+            </div>
+          )}
 
           {formattedExifData && (
             <Fragment>
@@ -501,17 +579,17 @@ export const ExifPanel: FC<{
                         value={`${formattedExifData.gps.altitude}m`}
                       />
                     )}
-                    <div className="mt-2 text-right">
-                      <a
-                        href={`https://uri.amap.com/marker?position=${formattedExifData.gps.longitude},${formattedExifData.gps.latitude}&name=${encodeURIComponent(t('exif.gps.location.name'))}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue inline-flex items-center gap-1 text-xs underline transition-colors hover:text-blue-300"
-                      >
-                        {t('exif.gps.view.map')}
-                        <i className="i-mingcute-external-link-line" />
-                      </a>
-                    </div>
+
+                    {/* Maplibre MiniMap */}
+                    {decimalLatitude !== null && decimalLongitude !== null && (
+                      <div className="mt-3">
+                        <MiniMap
+                          latitude={decimalLatitude}
+                          longitude={decimalLongitude}
+                          photoId={currentPhoto.id}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

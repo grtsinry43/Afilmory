@@ -14,6 +14,8 @@ export interface BuilderConfig {
   repo: {
     enable: boolean
     url: string
+    // Git token for pushing updates back to the repository
+    token?: string
   }
   // 存储配置
   storage: StorageConfig
@@ -34,6 +36,9 @@ export interface BuilderConfig {
 
     // 是否在构建完成后显示详细统计
     showDetailedStats: boolean
+
+    // 摘要后缀长度（0表示不添加后缀，>0表示添加sha256摘要的前N个字符作为后缀）
+    digestSuffixLength?: number
   }
 
   // 日志配置
@@ -74,6 +79,7 @@ export const defaultBuilderConfig: BuilderConfig = {
   repo: {
     enable: false,
     url: '',
+    token: env.GIT_TOKEN,
   },
 
   storage: {
@@ -85,6 +91,19 @@ export const defaultBuilderConfig: BuilderConfig = {
     secretAccessKey: env.S3_SECRET_ACCESS_KEY,
     prefix: env.S3_PREFIX,
     customDomain: env.S3_CUSTOM_DOMAIN,
+    excludeRegex: env.S3_EXCLUDE_REGEX,
+    maxFileLimit: 1000,
+    // Network tuning defaults
+    keepAlive: true,
+    maxSockets: 64,
+    connectionTimeoutMs: 5_000,
+    socketTimeoutMs: 30_000,
+    requestTimeoutMs: 20_000,
+    idleTimeoutMs: 10_000,
+    totalTimeoutMs: 60_000,
+    retryMode: 'standard',
+    maxAttempts: 3,
+    downloadConcurrency: 16,
   },
 
   options: {
@@ -92,6 +111,7 @@ export const defaultBuilderConfig: BuilderConfig = {
     enableLivePhotoDetection: true,
     showProgress: true,
     showDetailedStats: true,
+    digestSuffixLength: 0,
   },
 
   logging: {

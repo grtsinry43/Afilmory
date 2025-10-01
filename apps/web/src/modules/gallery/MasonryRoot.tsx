@@ -6,17 +6,20 @@ import { gallerySettingAtom } from '~/atoms/app'
 import { DateRangeIndicator } from '~/components/ui/date-range-indicator'
 import { useScrollViewElement } from '~/components/ui/scroll-areas/hooks'
 import { useMobile } from '~/hooks/useMobile'
-import { usePhotos, usePhotoViewer } from '~/hooks/usePhotoViewer'
+import { useContextPhotos } from '~/hooks/usePhotoViewer'
 import { useTypeScriptHappyCallback } from '~/hooks/useTypeScriptCallback'
 import { useVisiblePhotosDateRange } from '~/hooks/useVisiblePhotosDateRange'
 import { clsxm } from '~/lib/cn'
 import { Spring } from '~/lib/spring'
 import type { PhotoManifest } from '~/types/photo'
 
-import { ActionGroup } from './ActionGroup'
+import type { ActionType } from './ActionGroup'
+import { ActionGroup, ActionPanel } from './ActionGroup'
+import { FloatingActionButton } from './FloatingActionButton'
+import type { MasonryRef } from './Masonic'
 import { Masonry } from './Masonic'
 import { MasonryHeaderMasonryItem } from './MasonryHeaderMasonryItem'
-import { PhotoMasonryItem } from './PhotoMasonryItem'
+import { MasonryPhotoItem } from './MasonryPhotoItem'
 
 class MasonryHeaderItem {
   static default = new MasonryHeaderItem()
@@ -26,21 +29,43 @@ type MasonryItemType = PhotoManifest | MasonryHeaderItem
 
 const FIRST_SCREEN_ITEMS_COUNT = 30
 
+const COLUMN_WIDTH_CONFIG = {
+  auto: {
+    mobile: 150,
+    desktop: 250,
+    maxColumns: 8,
+  },
+  min: {
+    mobile: 120,
+    desktop: 200,
+  },
+  max: {
+    mobile: 250,
+    desktop: 500,
+  },
+}
+
 export const MasonryRoot = () => {
   const { columns } = useAtomValue(gallerySettingAtom)
   const hasAnimatedRef = useRef(false)
   const [showFloatingActions, setShowFloatingActions] = useState(false)
   const [containerWidth, setContainerWidth] = useState(0)
 
-  const photos = usePhotos()
+  const photos = useContextPhotos()
+  const masonryRef = useRef<MasonryRef>(null)
+
   const { dateRange, handleRender } = useVisiblePhotosDateRange(photos)
   const scrollElement = useScrollViewElement()
 
-  const photoViewer = usePhotoViewer()
   const handleAnimationComplete = useCallback(() => {
     hasAnimatedRef.current = true
   }, [])
   const isMobile = useMobile()
+
+  const [activePanel, setActivePanel] = useState<ActionType | null>(null)
+  const handleActionClick = (action: ActionType) => {
+    setActivePanel(action)
+  }
 
   // 监听容器宽度变化
   useEffect(() => {
@@ -58,18 +83,33 @@ export const MasonryRoot = () => {
 
   // 动态计算列宽
   const columnWidth = useMemo(() => {
+    const { auto, min, max } = COLUMN_WIDTH_CONFIG
+    const gutter = 4 // 列间距
+    const availableWidth = containerWidth - (isMobile ? 8 : 32) // 移动端和桌面端的 padding 不同
+
     if (columns === 'auto') {
-      return isMobile ? 150 : 300 // 自动模式使用默认列宽
+      const autoWidth = isMobile ? auto.mobile : auto.desktop
+      if (!isMobile) {
+        const { maxColumns } = auto
+        // 当屏幕宽度超过一定阈值时，通过计算动态列宽来限制最大列数
+        const colCount = Math.floor(
+          (availableWidth + gutter) / (autoWidth + gutter),
+        )
+
+        if (colCount > maxColumns) {
+          return (availableWidth - (maxColumns - 1) * gutter) / maxColumns
+        }
+      }
+
+      return autoWidth
     }
 
     // 自定义列数模式：根据容器宽度和列数计算列宽
-    const availableWidth = containerWidth - (isMobile ? 8 : 32) // 移动端和桌面端的 padding 不同
-    const gutter = 4 // 列间距
     const calculatedWidth = (availableWidth - (columns - 1) * gutter) / columns
 
     // 根据设备类型设置最小和最大列宽
-    const minWidth = isMobile ? 120 : 200
-    const maxWidth = isMobile ? 250 : 500
+    const minWidth = isMobile ? min.mobile : min.desktop
+    const maxWidth = isMobile ? max.mobile : max.desktop
 
     return Math.max(Math.min(calculatedWidth, maxWidth), minWidth)
   }, [isMobile, columns, containerWidth])
@@ -112,15 +152,20 @@ export const MasonryRoot = () => {
             isVisible={showFloatingActions && !!dateRange.formattedRange}
             className="relative top-0 left-0"
           />
-          <div className="flex justify-end">
-            <FloatingActionBar showFloatingActions={showFloatingActions} />
-          </div>
         </div>
+      )}
+
+      {isMobile && (
+        <FloatingActionButton
+          isVisible={showFloatingActions}
+          onActionClick={handleActionClick}
+        />
       )}
 
       <div className="p-1 lg:px-0 lg:pb-0 [&_*]:!select-none">
         {isMobile && <MasonryHeaderMasonryItem className="mb-1" />}
         <Masonry<MasonryItemType>
+          ref={masonryRef}
           items={useMemo(
             () => (isMobile ? photos : [MasonryHeaderItem.default, ...photos]),
             [photos, isMobile],
@@ -129,13 +174,11 @@ export const MasonryRoot = () => {
             (props) => (
               <MasonryItem
                 {...props}
-                onPhotoClick={photoViewer.openViewer}
-                photos={photos}
                 hasAnimated={hasAnimatedRef.current}
                 onAnimationComplete={handleAnimationComplete}
               />
             ),
-            [handleAnimationComplete, photoViewer.openViewer, photos],
+            [handleAnimationComplete],
           )}
           onRender={handleRender}
           columnWidth={columnWidth}
@@ -150,6 +193,16 @@ export const MasonryRoot = () => {
           }, [])}
         />
       </div>
+
+      <ActionPanel
+        open={!!activePanel}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActivePanel(null)
+          }
+        }}
+        type={activePanel}
+      />
     </>
   )
 }
@@ -159,16 +212,13 @@ export const MasonryItem = memo(
     data,
     width,
     index,
-    onPhotoClick,
-    photos,
+
     hasAnimated,
     onAnimationComplete,
   }: {
     data: MasonryItemType
     width: number
     index: number
-    onPhotoClick: (index: number, element?: HTMLElement) => void
-    photos: PhotoManifest[]
     hasAnimated: boolean
     onAnimationComplete: () => void
   }) => {
@@ -211,7 +261,7 @@ export const MasonryItem = memo(
     }
 
     if (data instanceof MasonryHeaderItem) {
-      return <MasonryHeaderMasonryItem style={{ width }} />
+      return <MasonryHeaderMasonryItem style={{ width }} key={itemKey} />
     } else {
       return (
         <m.div
@@ -221,12 +271,10 @@ export const MasonryItem = memo(
           animate="visible"
           onAnimationComplete={shouldAnimate ? onAnimationComplete : undefined}
         >
-          <PhotoMasonryItem
+          <MasonryPhotoItem
             data={data as PhotoManifest}
             width={width}
             index={index}
-            onPhotoClick={onPhotoClick}
-            photos={photos}
           />
         </m.div>
       )

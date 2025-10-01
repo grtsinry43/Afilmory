@@ -1,3 +1,4 @@
+import { LoadingState } from './enum'
 import { ImageViewerEngineBase } from './ImageViewerEngineBase'
 import type { DebugInfo, WebGLImageViewerProps } from './interface'
 import {
@@ -5,7 +6,7 @@ import {
   FRAGMENT_SHADER_SOURCE,
   VERTEX_SHADER_SOURCE,
 } from './shaders'
-import TextureWorker from './texture.worker?worker'
+import TextureWorkerRaw from './texture.worker?raw'
 
 // 瓦片系统配置
 const TILE_SIZE = 512 // 每个瓦片的像素大小
@@ -80,7 +81,6 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
   private animationStartLOD = -1
 
   // 简化的纹理管理
-  private originalImage: HTMLImageElement | null = null
   private currentLOD = 1 // 默认使用正常质量
   private lodTextures = new Map<number, WebGLTexture>()
 
@@ -90,7 +90,7 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
   private onImageCopied?: () => void
   private onLoadingStateChange?: (
     isLoading: boolean,
-    message?: string,
+    state?: LoadingState,
     quality?: 'high' | 'medium' | 'low' | 'unknown',
   ) => void
   private onDebugUpdate?: React.RefObject<(debugInfo: any) => void>
@@ -120,6 +120,10 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
   // 可视区域信息
   private currentVisibleTiles = new Set<TileKey>()
   private lastViewportHash = ''
+
+  // Promise resolvers for loadImage
+  private loadImageResolve: (() => void) | null = null
+  private loadImageReject: ((error: Error) => void) | null = null
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -261,14 +265,76 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
   }
 
   private initWorker() {
-    this.worker = new TextureWorker()
+    this.worker = new Worker(
+      URL.createObjectURL(new Blob([TextureWorkerRaw])),
+      {
+        name: 'texture-worker',
+      },
+    )
+
     this.worker.onmessage = (e: MessageEvent) => {
       this.handleWorkerMessage(e)
+    }
+
+    this.worker.onerror = (e: ErrorEvent) => {
+      console.error('[Worker] Error:', e.message, e.error)
     }
   }
 
   private handleWorkerMessage(e: MessageEvent) {
     const { type, payload } = e.data
+
+    if (type === 'image-loaded') {
+      const { imageBitmap, imageWidth, imageHeight, lodLevel } = payload
+      try {
+        if (!this.imageWidth || !this.imageHeight) {
+          this.imageWidth = imageWidth
+          this.imageHeight = imageHeight
+          this.setupInitialScaling()
+        }
+
+        this.notifyLoadingStateChange(true, LoadingState.CREATE_TEXTURE)
+
+        const texture = this.createWebGLTexture(imageBitmap)
+        imageBitmap.close()
+
+        if (texture) {
+          this.cleanupLODTextures()
+          this.lodTextures.set(lodLevel, texture)
+          this.texture = texture
+          this.currentLOD = lodLevel
+          this.currentQuality =
+            SIMPLE_LOD_LEVELS[lodLevel].scale >= 2
+              ? 'high'
+              : SIMPLE_LOD_LEVELS[lodLevel].scale >= 1
+                ? 'medium'
+                : 'low'
+        }
+
+        this.imageLoaded = true
+        this.isLoadingTexture = false
+        this.notifyLoadingStateChange(false)
+        this.render()
+        this.notifyZoomChange()
+        if (this.loadImageResolve) {
+          this.loadImageResolve()
+        }
+      } catch (error) {
+        if (this.loadImageReject) {
+          this.loadImageReject(error as Error)
+        }
+      }
+      return
+    }
+
+    if (type === 'load-error') {
+      this.isLoadingTexture = false
+      this.notifyLoadingStateChange(false)
+      if (this.loadImageReject) {
+        this.loadImageReject(new Error('Failed to load image in worker'))
+      }
+      return
+    }
 
     if (type === 'init-done') {
       this.textureWorkerInitialized = true
@@ -335,7 +401,7 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
   ) {
     this.originalImageSrc = url
     this.isLoadingTexture = true
-    this.notifyLoadingStateChange(true, '图片加载中...')
+    this.notifyLoadingStateChange(true, LoadingState.IMAGE_LOADING)
 
     if (preknownWidth && preknownHeight) {
       this.imageWidth = preknownWidth
@@ -343,50 +409,15 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
       this.setupInitialScaling()
     }
 
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-
     return new Promise<void>((resolve, reject) => {
-      image.onload = async () => {
-        try {
-          if (!preknownWidth || !preknownHeight) {
-            this.imageWidth = image.width
-            this.imageHeight = image.height
-            this.setupInitialScaling()
-          }
+      this.loadImageResolve = resolve
+      this.loadImageReject = reject
 
-          this.notifyLoadingStateChange(true, '创建纹理中...')
-          await this.createTexture(image)
-
-          // Also, create an ImageBitmap and send to worker
-          const imageBitmap = await createImageBitmap(image)
-          this.worker?.postMessage(
-            {
-              type: 'init',
-              payload: { imageBitmap },
-            },
-            [imageBitmap],
-          )
-
-          this.imageLoaded = true
-          this.isLoadingTexture = false
-          this.notifyLoadingStateChange(false)
-          this.render()
-          this.notifyZoomChange()
-          resolve()
-        } catch (error) {
-          this.isLoadingTexture = false
-          this.notifyLoadingStateChange(false)
-          reject(error)
-        }
-      }
-
-      image.onerror = () => {
-        this.isLoadingTexture = false
-        this.notifyLoadingStateChange(false)
-        reject(new Error('Failed to load image'))
-      }
-      image.src = url
+      console.info('[Engine] Posting "load-image" to worker', this.worker)
+      this.worker?.postMessage({
+        type: 'load-image',
+        payload: { url },
+      })
     })
   }
 
@@ -396,57 +427,6 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
     } else {
       const fitToScreenScale = this.getFitToScreenScale()
       this.scale = fitToScreenScale * this.config.initialScale
-    }
-  }
-
-  private async createTexture(image: HTMLImageElement) {
-    this.originalImage = image
-    await this.createLODTexture(this.currentLOD)
-  }
-
-  private async createLODTexture(lodLevel: number) {
-    if (
-      !this.originalImage ||
-      lodLevel < 0 ||
-      lodLevel >= SIMPLE_LOD_LEVELS.length
-    ) {
-      return
-    }
-
-    const lodConfig = SIMPLE_LOD_LEVELS[lodLevel]
-    const finalWidth = Math.max(
-      1,
-      Math.round(this.originalImage.width * lodConfig.scale),
-    )
-    const finalHeight = Math.max(
-      1,
-      Math.round(this.originalImage.height * lodConfig.scale),
-    )
-
-    // 创建 canvas 进行缩放
-    const canvas = document.createElement('canvas')
-    canvas.width = finalWidth
-    canvas.height = finalHeight
-    const ctx = canvas.getContext('2d')!
-
-    ctx.imageSmoothingEnabled = true
-    ctx.imageSmoothingQuality = lodConfig.scale >= 1 ? 'high' : 'medium'
-
-    // 绘制缩放后的图像
-    ctx.drawImage(this.originalImage, 0, 0, finalWidth, finalHeight)
-
-    // 创建 WebGL 纹理
-    const texture = this.createWebGLTexture(canvas)
-    if (texture) {
-      // 清理旧纹理
-      this.cleanupLODTextures()
-      this.lodTextures.set(lodLevel, texture)
-      this.texture = texture
-      this.currentLOD = lodLevel
-
-      // 更新质量指示器
-      this.currentQuality =
-        lodConfig.scale >= 2 ? 'high' : lodConfig.scale >= 1 ? 'medium' : 'low'
     }
   }
 
@@ -1123,13 +1103,14 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
 
   private notifyLoadingStateChange(
     isLoading: boolean,
-    message?: string,
+
+    state?: LoadingState,
     quality?: 'high' | 'medium' | 'low' | 'unknown',
   ) {
     if (this.onLoadingStateChange) {
       this.onLoadingStateChange(
         isLoading,
-        message,
+        state,
         quality || this.currentQuality,
       )
     }

@@ -19,5 +19,10 @@ catalog:
   zod: 4.1.11
 
 onlyBuiltDependencies:
+  - '@tailwindcss/oxide'
+  - bufferutil
   - esbuild
   - puppeteer
+  - sharp
+  - simple-git-hooks
+  - unrs-resolver
